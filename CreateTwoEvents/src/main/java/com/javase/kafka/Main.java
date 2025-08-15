@@ -1,11 +1,13 @@
 package com.javase.kafka;
 
+import java.util.Map;
 import java.util.Properties;
 
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
+import org.apache.kafka.streams.kstream.Branched;
 import org.apache.kafka.streams.kstream.KStream;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -68,6 +70,27 @@ public class Main {
 				return java.util.Collections.emptyList();
 			}
 		}).to("output-topic");
+
+		// Split into separate topics - Approach 1: Using branch() method
+		KStream<String, String>[] branches = inputStream.branch((key, value) -> value.contains("\"channel\":\"sms\""),
+				(key, value) -> value.contains("\"channel\":\"email\""));
+		branches[0].to("sms-topic");
+		branches[1].to("email-topic");
+
+		// Split into separate topics - Approach 2: Using split() method
+		Map<String, KStream<String, String>> branchedStreams = inputStream.split()
+				.branch((key, value) -> value.contains("\"channel\":\"sms\""), Branched.as("SMS"))
+				.branch((key, value) -> value.contains("\"channel\":\"email\""), Branched.as("Email")).defaultBranch();
+
+		KStream<String, String> branchA = branchedStreams.get("SMS");
+		KStream<String, String> branchB = branchedStreams.get("Email");
+
+		branchA.to("sms-topic");
+		branchB.to("email-topic");
+
+		// Split into separate topics - Approach 3: Using filter() method
+		inputStream.filter((key, value) -> value.contains("\"channel\":\"sms\"")).to("sms-topic");
+		inputStream.filter((key, value) -> value.contains("\"channel\":\"email\"")).to("email-topic");
 
 		// Start the Kafka Streams application
 		KafkaStreams streams = new KafkaStreams(builder.build(), props);
